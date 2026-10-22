@@ -45,7 +45,7 @@ export function createDemo(): Application[] {
       'HR interview',
       -6,
       'Meet the recruiting team',
-      2,
+      0,
     ],
     [
       'Notion',
@@ -55,7 +55,7 @@ export function createDemo(): Application[] {
       'Applied',
       -4,
       'Follow up with the recruiter',
-      4,
+      -2,
     ],
     [
       'Buffer',

@@ -1,7 +1,7 @@
 {
   "name": "jobtrack",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --configLoader native --host 127.0.0.1",
@@ -24,6 +24,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "axe-core": "^4.14.0",
     "firebase-tools": "^15.34.0",
     "prettier": "^3.6.0",
     "typescript": "~5.9.3",

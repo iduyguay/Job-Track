@@ -4,13 +4,13 @@ A focused workspace for managing job applications, interviews, and next steps. B
 
 ## Delivery plan
 
-The project is delivered in three milestones, with one push on each of three different days. Milestone 1 was delivered on October 21, 2026. Milestone 2 and the updated palette are delivered on October 22, 2026. Milestone 3 remains planned.
+The project is delivered in three milestones, with one push on each of three different days. Milestone 1 was delivered on October 21, 2026. Milestone 2 and the updated palette were delivered on October 22, 2026. Milestone 3 is delivered on October 23, 2026.
 
 | Milestone                      | Scope                                                                                                                                     | Status                                               |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | 1 — Local workspace            | Responsive layout, application list, search, filters, sorting, creation, details, local persistence, sample data                          | Pushed                                               |
 | 2 — Connected workflow         | Registration, sign-in, sign-out, password reset, private Firestore records, ownership rules, editing, deletion, board view, stage history | Delivered; production Firebase configuration pending |
-| 3 — Follow-through and release | Today view, date priorities, expanded tests, accessibility review, deployment                                                             | Planned                                              |
+| 3 — Follow-through and release | Today view, date priorities, expanded tests, accessibility review, GitHub Pages deployment                                                | Delivered; local-demo release                        |
 
 ## Run locally
 
@@ -37,6 +37,14 @@ Add an application or choose **Try sample data** to load eight fictional applica
 Search companies, positions, and locations; filter by stage; sort by date or company. Switch between list and board views. Open an application to edit its fields, inspect its stage history, or delete it with a company- and position-specific confirmation. Board selectors change stages without requiring drag-and-drop.
 
 Local records are saved under `jobtrack.applications.v1`. Legacy milestone 1 records are read without losing their data. Browser storage errors are reported and form entries remain available for retry.
+
+## Today and priority rules
+
+The **Today** workspace shows open applications with a next step and a valid action date. It groups overdue actions, actions due today, and actions scheduled within the next seven calendar days, including day seven. Rejected and withdrawn applications are excluded; offers remain eligible for follow-up.
+
+Entries are ordered by action date, then company and identifier. Each entry explains its inclusion. **Done** clears the next step and action date while preserving the application stage and its history. **Review or reschedule** opens the application details for editing. Completing an action moves keyboard focus back to the Today heading.
+
+Dates follow the browser's local calendar. The current day refreshes at midnight and when the tab regains focus or visibility. Calendar-day comparisons use date ordinals, avoiding daylight-saving hour offsets. New sample data includes an overdue follow-up, an action due today, and upcoming actions. Existing stored sample data is preserved until you explicitly reset it.
 
 ## Firebase setup
 
@@ -95,13 +103,29 @@ The interface includes semantic landmarks, a skip link, labeled fields, visible 
 
 ## Deployment
 
-Planned for milestone 3. The static build directory is `dist/`. Configure Firebase environment values in the hosting build environment before running `npm ci && npm run build`. Deploying the frontend does not deploy Firestore rules.
+Public demo: [JobTrack](https://iduyguay.github.io/Job-Track/).
+
+The GitHub Actions workflow validates formatting, runs all 13 tests against Authentication and Firestore emulators, builds the application, and deploys `dist/` to GitHub Pages for pushes to `main`. Pull requests run validation without deploying. The workflow can also be started manually. A failed validation prevents deployment.
+
+The Pages build uses `VITE_BASE_PATH=/Job-Track/`. Local builds default to `/`. Hosting outside GitHub Pages can use `npm ci && npm run build` and publish `dist/`.
+
+This release runs in local-demo mode because a production Firebase project has not been provisioned. To enable accounts later, add the four `VITE_FIREBASE_*` values from `.env.example` to the repository's Actions variables, deploy `firestore.rules` to the matching project, enable email/password authentication, and authorize `iduyguay.github.io` in Firebase Authentication. Then rerun the deployment workflow. The workflow explicitly disables emulator connections in release builds.
+
+Deploying the frontend does not deploy Firestore rules. The included Firebase security rules have been verified locally using the emulator; no live Firebase resources have been created.
+
+## Release verification
+
+- Production TypeScript and Vite build and Prettier checks.
+- 13 passing unit and emulator integration tests, including date boundaries, history, private access, account flows, and transaction conflicts.
+- Automated axe-core WCAG A/AA checks on list, board, and Today views; no detected violations after correcting muted text contrast.
+- Browser checks for action completion, local persistence, and navigation; visual review at desktop and 390px mobile widths.
+- Automated checks complement manual review and do not certify full accessibility compliance.
 
 ## References
 
 - Design reference: not supplied.
 - Technical specification: provided project brief, summarized by the delivery plan above.
-- Live deployment: pending milestone 3.
+- Live demo: https://iduyguay.github.io/Job-Track/.
 - [Firebase password authentication](https://firebase.google.com/docs/auth/web/password-auth)
 - [Firestore transactions](https://firebase.google.com/docs/firestore/manage-data/transactions)
 - [Firestore security conditions](https://firebase.google.com/docs/firestore/security/rules-conditions)

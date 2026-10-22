@@ -5,12 +5,16 @@ import { auth } from './lib/firebase';
 import { describeError } from './lib/errors';
 import { useApplications } from './hooks/useApplications';
 import ApplicationBoard from './components/ApplicationBoard';
+import TodayView from './components/TodayView';
+import { buildPriorities } from './lib/priorities';
+import { useCalendarDay } from './hooks/useCalendarDay';
 import AuthDialog from './components/AuthDialog';
 import Modal from './components/Modal';
 import {
   ArrowDownUp,
   ArrowUpRight,
   BriefcaseBusiness,
+  CalendarDays,
   ChevronRight,
   Plus,
   Search,
@@ -68,6 +72,12 @@ function Workspace({ user }: { user: User | null }) {
   const [authOpen, setAuthOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [accountError, setAccountError] = useState('');
+  const [page, setPage] = useState<'applications' | 'today'>('applications');
+  const today = useCalendarDay();
+  const priorities = useMemo(
+    () => buildPriorities(applications, today),
+    [applications, today],
+  );
   const [view, setView] = useState<'list' | 'board'>('list');
   const [query, setQuery] = useState('');
   const [stage, setStage] = useState('All stages');
@@ -117,6 +127,17 @@ function Workspace({ user }: { user: User | null }) {
       setAnnouncement('Stage could not be updated. Please try again.');
     }
   }
+  async function completeAction(item: Application) {
+    try {
+      await save({ ...item, nextAction: '', actionDate: '' }, item);
+      setAnnouncement(`Next step completed for ${item.company}.`);
+      document.getElementById('today-title')?.focus();
+    } catch {
+      setAnnouncement(
+        'The next step could not be completed. Please try again.',
+      );
+    }
+  }
   async function leaveAccount() {
     if (!auth || busy || signingOut) return;
     setSigningOut(true);
@@ -130,7 +151,7 @@ function Workspace({ user }: { user: User | null }) {
     }
   }
   const active = applications.filter(
-    (item) => !['Rejected', 'Withdrawn'].includes(item.stage),
+    (item) => !['Offer', 'Rejected', 'Withdrawn'].includes(item.stage),
   ).length;
   const interviews = applications.filter((item) =>
     ['HR interview', 'Technical interview'].includes(item.stage),
@@ -138,7 +159,7 @@ function Workspace({ user }: { user: User | null }) {
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
-        Skip to applications
+        Skip to main content
       </a>
       <aside className="sidebar">
         <a className="brand" href="./" aria-label="JobTrack home">
@@ -147,10 +168,24 @@ function Workspace({ user }: { user: User | null }) {
         </a>
         <p className="workspace-label">YOUR WORKSPACE</p>
         <nav aria-label="Main navigation">
-          <a className="nav-active" href="#main" aria-current="page">
-            <BriefcaseBusiness size={18} />
+          <button
+            className={
+              page === 'applications' ? 'nav-item nav-active' : 'nav-item'
+            }
+            aria-current={page === 'applications' ? 'page' : undefined}
+            onClick={() => setPage('applications')}
+          >
+            <BriefcaseBusiness size={18} aria-hidden="true" />
             Applications<span>{applications.length}</span>
-          </a>
+          </button>
+          <button
+            className={page === 'today' ? 'nav-item nav-active' : 'nav-item'}
+            aria-current={page === 'today' ? 'page' : undefined}
+            onClick={() => setPage('today')}
+          >
+            <CalendarDays size={18} aria-hidden="true" />
+            Today<span>{priorities.length}</span>
+          </button>
         </nav>
         <div className="sidebar-bottom">
           <div className="avatar">Y</div>
@@ -167,7 +202,8 @@ function Workspace({ user }: { user: User | null }) {
       <div className="workspace">
         <header className="topbar">
           <span>
-            Workspace <ChevronRight size={14} /> <strong>Applications</strong>
+            Workspace <ChevronRight size={14} />{' '}
+            <strong>{page === 'today' ? 'Today' : 'Applications'}</strong>
           </span>
           <div className="account-controls">
             <span className="local-badge">
@@ -192,13 +228,29 @@ function Workspace({ user }: { user: User | null }) {
             )}
           </div>
         </header>
-        <main id="main">
+        <main id="main" tabIndex={-1}>
           <div className="page-heading">
             <div>
-              <p className="eyebrow">A LITTLE STRUCTURE. A CLEARER HEAD.</p>
-              <h1>Your next chapter starts here.</h1>
+              <p className="eyebrow">
+                {page === 'today'
+                  ? new Intl.DateTimeFormat('en', {
+                      weekday: 'long',
+                      month: 'long',
+                      day: 'numeric',
+                    })
+                      .format(new Date(`${today}T12:00:00`))
+                      .toUpperCase()
+                  : 'A LITTLE STRUCTURE. A CLEARER HEAD.'}
+              </p>
+              <h1>
+                {page === 'today'
+                  ? 'Make the next move.'
+                  : 'Your next chapter starts here.'}
+              </h1>
               <p className="intro">
-                Keep your opportunities in order, and your next step in sight.
+                {page === 'today'
+                  ? 'A clear plan for the opportunities that matter.'
+                  : 'Keep your opportunities in order, and your next step in sight.'}
               </p>
             </div>
             <button
@@ -210,261 +262,301 @@ function Workspace({ user }: { user: User | null }) {
               Add application
             </button>
           </div>
-          <section className="overview" aria-label="Application overview">
-            <div>
-              <span>Total applications</span>
-              <strong>
-                {applications.length}
-                <small>opportunities explored</small>
-              </strong>
-            </div>
-            <div>
-              <span>In progress</span>
-              <strong>
-                {active}
-                <small>doors still open</small>
-              </strong>
-            </div>
-            <div>
-              <span>Interviews</span>
-              <strong>
-                {interviews}
-                <small>conversations underway</small>
-              </strong>
-            </div>
-            <div>
-              <span>Offers</span>
-              <strong>
-                {applications.filter((item) => item.stage === 'Offer').length}
-                <small>something to celebrate</small>
-              </strong>
-            </div>
-          </section>
-          <section
-            className="applications-section"
-            aria-labelledby="applications-title"
-          >
-            <div className="section-heading">
-              <div>
-                <h2 id="applications-title">
-                  Your applications <span>{applications.length}</span>
-                </h2>
-                <p>Every opportunity, with a place to land.</p>
-              </div>
-              {!user && (
-                <button
-                  className="text-button"
-                  disabled={busy}
-                  onClick={() =>
-                    applications.length ? setResetting(true) : resetDemo()
-                  }
-                >
-                  <RotateCcw size={14} />
-                  {applications.length
-                    ? 'Reset sample data'
-                    : 'Try sample data'}
-                </button>
-              )}
-            </div>
-            <div
-              className="view-switch"
-              role="group"
-              aria-label="Application view"
-            >
-              <button
-                aria-pressed={view === 'list'}
-                onClick={() => setView('list')}
+          {page === 'applications' && (
+            <>
+              <section className="overview" aria-label="Application overview">
+                <div>
+                  <span>Total applications</span>
+                  <strong>
+                    {applications.length}
+                    <small>
+                      {applications.length === 1
+                        ? 'opportunity explored'
+                        : 'opportunities explored'}
+                    </small>
+                  </strong>
+                </div>
+                <div>
+                  <span>In progress</span>
+                  <strong>
+                    {active}
+                    <small>
+                      {active === 1 ? 'door still open' : 'doors still open'}
+                    </small>
+                  </strong>
+                </div>
+                <div>
+                  <span>Interviews</span>
+                  <strong>
+                    {interviews}
+                    <small>
+                      {interviews === 1
+                        ? 'conversation underway'
+                        : 'conversations underway'}
+                    </small>
+                  </strong>
+                </div>
+                <div>
+                  <span>Offers</span>
+                  <strong>
+                    {
+                      applications.filter((item) => item.stage === 'Offer')
+                        .length
+                    }
+                    <small>something to celebrate</small>
+                  </strong>
+                </div>
+              </section>
+              <section
+                className="applications-section"
+                aria-labelledby="applications-title"
               >
-                List
-              </button>
-              <button
-                aria-pressed={view === 'board'}
-                onClick={() => setView('board')}
-              >
-                Board
-              </button>
-            </div>
-            <div className="toolbar">
-              <label className="search-field">
-                <Search size={17} />
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  aria-label="Search applications"
-                  placeholder="Search company, position, or location"
-                />
-              </label>
-              <div className="filters">
-                <label className="sr-only" htmlFor="stage">
-                  Filter by stage
-                </label>
-                <select
-                  id="stage"
-                  value={stage}
-                  onChange={(event) => setStage(event.target.value)}
+                <div className="section-heading">
+                  <div>
+                    <h2 id="applications-title">
+                      Your applications <span>{applications.length}</span>
+                    </h2>
+                    <p>Every opportunity, with a place to land.</p>
+                  </div>
+                  {!user && (
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        applications.length ? setResetting(true) : resetDemo()
+                      }
+                    >
+                      <RotateCcw size={14} />
+                      {applications.length
+                        ? 'Reset sample data'
+                        : 'Try sample data'}
+                    </button>
+                  )}
+                </div>
+                <div
+                  className="view-switch"
+                  role="group"
+                  aria-label="Application view"
                 >
-                  <option>All stages</option>
-                  {stages.map((value) => (
-                    <option key={value}>{value}</option>
-                  ))}
-                </select>
-                <ArrowDownUp size={15} aria-hidden="true" />
-                <label className="sr-only" htmlFor="sort">
-                  Sort applications
-                </label>
-                <select
-                  id="sort"
-                  value={sort}
-                  onChange={(event) => setSort(event.target.value)}
-                >
-                  <option value="newest">Newest first</option>
-                  <option value="oldest">Oldest first</option>
-                  <option value="company">Company A–Z</option>
-                </select>
-              </div>
-            </div>
-            {accountError && (
-              <p className="error" role="alert">
-                {accountError}
-              </p>
-            )}
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            {loading ? (
-              <div className="empty-state" role="status">
-                Loading your applications…
-              </div>
-            ) : filtered.length ? (
-              <>
-                {view === 'board' ? (
-                  <ApplicationBoard
-                    applications={filtered}
-                    busy={busy}
-                    onOpen={setDialog}
-                    onStageChange={changeStage}
-                  />
-                ) : (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th scope="col">COMPANY / POSITION</th>
-                          <th scope="col">STAGE</th>
-                          <th scope="col">APPLIED</th>
-                          <th scope="col">NEXT STEP</th>
-                          <th scope="col">
-                            <span className="sr-only">Details</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filtered.map((item) => (
-                          <tr key={item.id}>
-                            <td>
-                              <div className="company-cell">
-                                <span
-                                  className="company-monogram"
-                                  aria-hidden="true"
-                                >
-                                  {item.company.slice(0, 1).toUpperCase()}
-                                </span>
-                                <div>
-                                  <button
-                                    className="company-link"
-                                    onClick={() => setDialog(item)}
-                                  >
-                                    {item.company}
-                                    <span className="sr-only">
-                                      , {item.role}, view details
+                  <button
+                    aria-pressed={view === 'list'}
+                    onClick={() => setView('list')}
+                  >
+                    List
+                  </button>
+                  <button
+                    aria-pressed={view === 'board'}
+                    onClick={() => setView('board')}
+                  >
+                    Board
+                  </button>
+                </div>
+                <div className="toolbar">
+                  <label className="search-field">
+                    <Search size={17} />
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      aria-label="Search applications"
+                      placeholder="Search company, position, or location"
+                    />
+                  </label>
+                  <div className="filters">
+                    <label className="sr-only" htmlFor="stage">
+                      Filter by stage
+                    </label>
+                    <select
+                      id="stage"
+                      value={stage}
+                      onChange={(event) => setStage(event.target.value)}
+                    >
+                      <option>All stages</option>
+                      {stages.map((value) => (
+                        <option key={value}>{value}</option>
+                      ))}
+                    </select>
+                    <ArrowDownUp size={15} aria-hidden="true" />
+                    <label className="sr-only" htmlFor="sort">
+                      Sort applications
+                    </label>
+                    <select
+                      id="sort"
+                      value={sort}
+                      onChange={(event) => setSort(event.target.value)}
+                    >
+                      <option value="newest">Newest first</option>
+                      <option value="oldest">Oldest first</option>
+                      <option value="company">Company A–Z</option>
+                    </select>
+                  </div>
+                </div>
+                {accountError && (
+                  <p className="error" role="alert">
+                    {accountError}
+                  </p>
+                )}
+                {error && (
+                  <p className="error" role="alert">
+                    {error}
+                  </p>
+                )}
+                {loading ? (
+                  <div className="empty-state" role="status">
+                    Loading your applications…
+                  </div>
+                ) : filtered.length ? (
+                  <>
+                    {view === 'board' ? (
+                      <ApplicationBoard
+                        applications={filtered}
+                        busy={busy}
+                        onOpen={setDialog}
+                        onStageChange={changeStage}
+                      />
+                    ) : (
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th scope="col">COMPANY / POSITION</th>
+                              <th scope="col">STAGE</th>
+                              <th scope="col">APPLIED</th>
+                              <th scope="col">NEXT STEP</th>
+                              <th scope="col">
+                                <span className="sr-only">Details</span>
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filtered.map((item) => (
+                              <tr key={item.id}>
+                                <td>
+                                  <div className="company-cell">
+                                    <span
+                                      className="company-monogram"
+                                      aria-hidden="true"
+                                    >
+                                      {item.company.slice(0, 1).toUpperCase()}
                                     </span>
+                                    <div>
+                                      <button
+                                        className="company-link"
+                                        onClick={() => setDialog(item)}
+                                      >
+                                        {item.company}
+                                        <span className="sr-only">
+                                          , {item.role}, view details
+                                        </span>
+                                      </button>
+                                      <span className="role-name">
+                                        {item.role}
+                                      </span>
+                                      <small>
+                                        {item.location ||
+                                          'Location not specified'}{' '}
+                                        · {item.mode}
+                                      </small>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td>
+                                  <span
+                                    className="status"
+                                    data-stage={item.stage}
+                                  >
+                                    {item.stage}
+                                  </span>
+                                </td>
+                                <td className="date-cell">
+                                  {formatDate(item.appliedAt)}
+                                </td>
+                                <td>
+                                  <span className="next-action">
+                                    {item.nextAction || 'No next step yet'}
+                                  </span>
+                                  {item.actionDate && (
+                                    <small className="action-date">
+                                      {formatDate(item.actionDate)}
+                                    </small>
+                                  )}
+                                </td>
+                                <td>
+                                  <button
+                                    className="icon-button"
+                                    onClick={() => setDialog(item)}
+                                    aria-label={`View ${item.company} application`}
+                                  >
+                                    <ArrowUpRight size={17} />
                                   </button>
-                                  <span className="role-name">{item.role}</span>
-                                  <small>
-                                    {item.location || 'Location not specified'}{' '}
-                                    · {item.mode}
-                                  </small>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <span className="status" data-stage={item.stage}>
-                                {item.stage}
-                              </span>
-                            </td>
-                            <td className="date-cell">
-                              {formatDate(item.appliedAt)}
-                            </td>
-                            <td>
-                              <span className="next-action">
-                                {item.nextAction || 'No next step yet'}
-                              </span>
-                              {item.actionDate && (
-                                <small className="action-date">
-                                  {formatDate(item.actionDate)}
-                                </small>
-                              )}
-                            </td>
-                            <td>
-                              <button
-                                className="icon-button"
-                                onClick={() => setDialog(item)}
-                                aria-label={`View ${item.company} application`}
-                              >
-                                <ArrowUpRight size={17} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <p className="results-count" role="status">
+                      Showing {filtered.length} of {applications.length}{' '}
+                      applications
+                    </p>
+                  </>
+                ) : (
+                  <div className="empty-state">
+                    <BriefcaseBusiness size={28} />
+                    <h3>
+                      {applications.length
+                        ? 'No matching opportunities'
+                        : 'Make room for your next opportunity.'}
+                    </h3>
+                    <p>
+                      {applications.length
+                        ? 'Try a different search or clear your filters.'
+                        : user
+                          ? 'Add your first application to your private workspace.'
+                          : 'Add your first application, or explore with sample data.'}
+                    </p>
+                    {applications.length ? (
+                      <button
+                        className="button secondary"
+                        onClick={() => {
+                          setQuery('');
+                          setStage('All stages');
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    ) : (
+                      <button
+                        className="button primary"
+                        disabled={loading || busy}
+                        onClick={() => setDialog('new')}
+                      >
+                        Add your first application
+                      </button>
+                    )}
                   </div>
                 )}
-                <p className="results-count" role="status">
-                  Showing {filtered.length} of {applications.length}{' '}
-                  applications
+              </section>
+            </>
+          )}
+          {page === 'today' && (
+            <>
+              {(error || accountError) && (
+                <p className="error" role="alert">
+                  {error || accountError}
                 </p>
-              </>
-            ) : (
-              <div className="empty-state">
-                <BriefcaseBusiness size={28} />
-                <h3>
-                  {applications.length
-                    ? 'No matching opportunities'
-                    : 'Make room for your next opportunity.'}
-                </h3>
-                <p>
-                  {applications.length
-                    ? 'Try a different search or clear your filters.'
-                    : user
-                      ? 'Add your first application to your private workspace.'
-                      : 'Add your first application, or explore with sample data.'}
-                </p>
-                {applications.length ? (
-                  <button
-                    className="button secondary"
-                    onClick={() => {
-                      setQuery('');
-                      setStage('All stages');
-                    }}
-                  >
-                    Clear filters
-                  </button>
-                ) : (
-                  <button
-                    className="button primary"
-                    disabled={loading || busy}
-                    onClick={() => setDialog('new')}
-                  >
-                    Add your first application
-                  </button>
-                )}
-              </div>
-            )}
-          </section>
+              )}
+              <TodayView
+                items={priorities}
+                loading={loading}
+                busy={busy}
+                onOpen={setDialog}
+                onComplete={completeAction}
+                onBrowse={() => setPage('applications')}
+              />
+            </>
+          )}
           <footer className="workspace-footer">
             <p>Your search, at your pace.</p>
             <p>
