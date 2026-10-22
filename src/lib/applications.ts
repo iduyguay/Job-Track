@@ -1,5 +1,6 @@
 import { stages, workModes } from '../types';
 import type { Application } from '../types';
+import { stageIsValid, withHistory } from './history';
 export const storageKey = 'jobtrack.applications.v1';
 export function dateOffset(days: number): string {
   const date = new Date();
@@ -141,7 +142,23 @@ export function isApplication(value: unknown): value is Application {
     ].every((key) => typeof item[key] === 'string') &&
     stages.some((stage) => stage === item.stage) &&
     workModes.some((mode) => mode === item.mode) &&
-    /^\d{4}-\d{2}-\d{2}$/.test(String(item.appliedAt))
+    isCalendarDate(String(item.appliedAt)) &&
+    (item.actionDate === '' || isCalendarDate(String(item.actionDate))) &&
+    (item.version === undefined ||
+      (Number.isInteger(item.version) && Number(item.version) >= 0)) &&
+    (item.history === undefined ||
+      (Array.isArray(item.history) &&
+        item.history.length <= 100 &&
+        item.history.every(
+          (event) =>
+            event &&
+            typeof event === 'object' &&
+            typeof event.id === 'string' &&
+            (event.from === null || stageIsValid(event.from)) &&
+            stageIsValid(event.to) &&
+            typeof event.at === 'string' &&
+            !Number.isNaN(Date.parse(event.at)),
+        )))
   );
 }
 export function loadApplications(): { items: Application[]; error: string } {
@@ -151,7 +168,7 @@ export function loadApplications(): { items: Application[]; error: string } {
     const parsed: unknown = JSON.parse(saved);
     if (!Array.isArray(parsed) || !parsed.every(isApplication))
       throw new Error();
-    return { items: parsed, error: '' };
+    return { items: parsed.map(withHistory), error: '' };
   } catch {
     return {
       items: [],
@@ -159,4 +176,12 @@ export function loadApplications(): { items: Application[]; error: string } {
         'Saved data could not be loaded. You can start again or load the sample applications.',
     };
   }
+}
+
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  return (
+    !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
 }

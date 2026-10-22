@@ -1,0 +1,33 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owns(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    function validStage(stage) {
+      return stage in ['Applied', 'HR interview', 'Technical interview', 'Offer', 'Rejected', 'Withdrawn'];
+    }
+    function validApplication(data, uid, applicationId) {
+      return data.keys().hasAll(['id', 'ownerId', 'company', 'role', 'location', 'mode', 'stage', 'appliedAt', 'nextAction', 'actionDate', 'notes', 'version', 'history'])
+        && data.keys().hasOnly(['id', 'ownerId', 'company', 'role', 'location', 'mode', 'stage', 'appliedAt', 'nextAction', 'actionDate', 'notes', 'version', 'history'])
+        && data.id == applicationId && data.ownerId == uid
+        && data.company is string && data.company.size() > 0 && data.company.size() <= 100
+        && data.role is string && data.role.size() > 0 && data.role.size() <= 150
+        && data.location is string && data.location.size() <= 150
+        && data.mode in ['Remote', 'Hybrid', 'On-site'] && validStage(data.stage)
+        && data.appliedAt is string && data.appliedAt.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.nextAction is string && data.nextAction.size() <= 200
+        && data.actionDate is string && (data.actionDate == '' || (data.actionDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') && data.nextAction.size() > 0))
+        && data.notes is string && data.notes.size() <= 4000
+        && data.version is int && data.version > 0
+        && data.history is list && data.history.size() > 0 && data.history.size() <= 100;
+    }
+    match /users/{uid}/applications/{applicationId} {
+      allow read: if owns(uid);
+      allow create: if owns(uid) && validApplication(request.resource.data, uid, applicationId) && request.resource.data.version == 1;
+      allow update: if owns(uid) && validApplication(request.resource.data, uid, applicationId)
+        && request.resource.data.version == resource.data.version + 1;
+      allow delete: if owns(uid);
+    }
+  }
+}

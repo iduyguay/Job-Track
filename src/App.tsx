@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import type { User } from 'firebase/auth';
+import { auth } from './lib/firebase';
+import { describeError } from './lib/errors';
+import { useApplications } from './hooks/useApplications';
+import ApplicationBoard from './components/ApplicationBoard';
+import AuthDialog from './components/AuthDialog';
+import Modal from './components/Modal';
 import {
   ArrowDownUp,
   ArrowUpRight,
@@ -10,17 +18,57 @@ import {
 } from 'lucide-react';
 import type { Application } from './types';
 import { stages } from './types';
-import {
-  createDemo,
-  formatDate,
-  loadApplications,
-  storageKey,
-} from './lib/applications';
+import { formatDate } from './lib/applications';
 import ApplicationDialog from './components/ApplicationDialog';
 export default function App() {
-  const [initial] = useState(loadApplications);
-  const [applications, setApplications] = useState(initial.items);
-  const [error, setError] = useState(initial.error);
+  const [user, setUser] = useState<User | null>(null);
+  const [initializing, setInitializing] = useState(Boolean(auth));
+  const [sessionError, setSessionError] = useState('');
+  useEffect(() => {
+    if (!auth) return;
+    return onAuthStateChanged(
+      auth,
+      (account) => {
+        setUser(account);
+        setInitializing(false);
+      },
+      (failure) => {
+        setSessionError(describeError(failure));
+        setInitializing(false);
+      },
+    );
+  }, []);
+  if (initializing)
+    return (
+      <main className="session-loading" role="status">
+        Opening your workspace…
+      </main>
+    );
+  return (
+    <>
+      <Workspace key={user?.uid ?? 'local'} user={user} />
+      {sessionError && (
+        <p className="session-error error" role="alert">
+          {sessionError}
+        </p>
+      )}
+    </>
+  );
+}
+function Workspace({ user }: { user: User | null }) {
+  const {
+    applications,
+    error,
+    loading,
+    busy,
+    save,
+    remove,
+    resetDemo: replaceDemo,
+  } = useApplications(user);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [view, setView] = useState<'list' | 'board'>('list');
   const [query, setQuery] = useState('');
   const [stage, setStage] = useState('All stages');
   const [sort, setSort] = useState('newest');
@@ -46,26 +94,40 @@ export default function App() {
         ),
     [applications, query, stage, sort],
   );
-  function persist(items: Application[]): boolean {
+  async function resetDemo() {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(items));
-      setApplications(items);
-      setError('');
-      return true;
-    } catch {
-      setError(
-        'Browser storage is unavailable or full. Your changes could not be saved.',
-      );
-      return false;
-    }
-  }
-  function resetDemo() {
-    if (persist(createDemo())) {
+      await replaceDemo();
       setQuery('');
       setStage('All stages');
       setAnnouncement('Sample applications loaded.');
+      setResetting(false);
+    } catch {
+      setResetting(false);
     }
-    setResetting(false);
+  }
+  async function changeStage(
+    item: Application,
+    nextStage: Application['stage'],
+  ) {
+    if (item.stage === nextStage) return;
+    try {
+      await save({ ...item, stage: nextStage }, item);
+      setAnnouncement(`${item.company} moved to ${nextStage}.`);
+    } catch {
+      setAnnouncement('Stage could not be updated. Please try again.');
+    }
+  }
+  async function leaveAccount() {
+    if (!auth || busy || signingOut) return;
+    setSigningOut(true);
+    setAccountError('');
+    try {
+      await signOut(auth);
+    } catch (failure) {
+      setAccountError(describeError(failure));
+    } finally {
+      setSigningOut(false);
+    }
   }
   const active = applications.filter(
     (item) => !['Rejected', 'Withdrawn'].includes(item.stage),
@@ -93,8 +155,12 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="avatar">Y</div>
           <div>
-            <strong>Your next chapter</strong>
-            <small>One step at a time.</small>
+            <strong className="account-email">
+              {user?.email ?? 'Your next chapter'}
+            </strong>
+            <small>
+              {user ? 'Private cloud workspace' : 'One step at a time.'}
+            </small>
           </div>
         </div>
       </aside>
@@ -103,10 +169,28 @@ export default function App() {
           <span>
             Workspace <ChevronRight size={14} /> <strong>Applications</strong>
           </span>
-          <span className="local-badge">
-            <span />
-            Local demo
-          </span>
+          <div className="account-controls">
+            <span className="local-badge">
+              <span />
+              {user ? 'Cloud workspace' : 'Local demo'}
+            </span>
+            {user ? (
+              <button
+                className="text-button"
+                disabled={busy || signingOut}
+                onClick={() => void leaveAccount()}
+              >
+                {signingOut ? 'Signing out…' : 'Sign out'}
+              </button>
+            ) : (
+              <button
+                className="button secondary"
+                onClick={() => setAuthOpen(true)}
+              >
+                Sign in
+              </button>
+            )}
+          </div>
         </header>
         <main id="main">
           <div className="page-heading">
@@ -117,7 +201,11 @@ export default function App() {
                 Keep your opportunities in order, and your next step in sight.
               </p>
             </div>
-            <button className="button primary" onClick={() => setDialog('new')}>
+            <button
+              className="button primary"
+              disabled={loading || busy}
+              onClick={() => setDialog('new')}
+            >
               <Plus size={17} />
               Add application
             </button>
@@ -163,14 +251,37 @@ export default function App() {
                 </h2>
                 <p>Every opportunity, with a place to land.</p>
               </div>
+              {!user && (
+                <button
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() =>
+                    applications.length ? setResetting(true) : resetDemo()
+                  }
+                >
+                  <RotateCcw size={14} />
+                  {applications.length
+                    ? 'Reset sample data'
+                    : 'Try sample data'}
+                </button>
+              )}
+            </div>
+            <div
+              className="view-switch"
+              role="group"
+              aria-label="Application view"
+            >
               <button
-                className="text-button"
-                onClick={() =>
-                  applications.length ? setResetting(true) : resetDemo()
-                }
+                aria-pressed={view === 'list'}
+                onClick={() => setView('list')}
               >
-                <RotateCcw size={14} />
-                {applications.length ? 'Reset sample data' : 'Try sample data'}
+                List
+              </button>
+              <button
+                aria-pressed={view === 'board'}
+                onClick={() => setView('board')}
+              >
+                Board
               </button>
             </div>
             <div className="toolbar">
@@ -213,87 +324,105 @@ export default function App() {
                 </select>
               </div>
             </div>
+            {accountError && (
+              <p className="error" role="alert">
+                {accountError}
+              </p>
+            )}
             {error && (
               <p className="error" role="alert">
                 {error}
               </p>
             )}
-            {filtered.length ? (
+            {loading ? (
+              <div className="empty-state" role="status">
+                Loading your applications…
+              </div>
+            ) : filtered.length ? (
               <>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th scope="col">COMPANY / POSITION</th>
-                        <th scope="col">STAGE</th>
-                        <th scope="col">APPLIED</th>
-                        <th scope="col">NEXT STEP</th>
-                        <th scope="col">
-                          <span className="sr-only">Details</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((item) => (
-                        <tr key={item.id}>
-                          <td>
-                            <div className="company-cell">
-                              <span
-                                className="company-monogram"
-                                aria-hidden="true"
-                              >
-                                {item.company.slice(0, 1).toUpperCase()}
-                              </span>
-                              <div>
-                                <button
-                                  className="company-link"
-                                  onClick={() => setDialog(item)}
-                                >
-                                  {item.company}
-                                  <span className="sr-only">
-                                    , {item.role}, view details
-                                  </span>
-                                </button>
-                                <span className="role-name">{item.role}</span>
-                                <small>
-                                  {item.location || 'Location not specified'} ·{' '}
-                                  {item.mode}
-                                </small>
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span className="status" data-stage={item.stage}>
-                              {item.stage}
-                            </span>
-                          </td>
-                          <td className="date-cell">
-                            {formatDate(item.appliedAt)}
-                          </td>
-                          <td>
-                            <span className="next-action">
-                              {item.nextAction || 'No next step yet'}
-                            </span>
-                            {item.actionDate && (
-                              <small className="action-date">
-                                {formatDate(item.actionDate)}
-                              </small>
-                            )}
-                          </td>
-                          <td>
-                            <button
-                              className="icon-button"
-                              onClick={() => setDialog(item)}
-                              aria-label={`View ${item.company} application`}
-                            >
-                              <ArrowUpRight size={17} />
-                            </button>
-                          </td>
+                {view === 'board' ? (
+                  <ApplicationBoard
+                    applications={filtered}
+                    busy={busy}
+                    onOpen={setDialog}
+                    onStageChange={changeStage}
+                  />
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">COMPANY / POSITION</th>
+                          <th scope="col">STAGE</th>
+                          <th scope="col">APPLIED</th>
+                          <th scope="col">NEXT STEP</th>
+                          <th scope="col">
+                            <span className="sr-only">Details</span>
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {filtered.map((item) => (
+                          <tr key={item.id}>
+                            <td>
+                              <div className="company-cell">
+                                <span
+                                  className="company-monogram"
+                                  aria-hidden="true"
+                                >
+                                  {item.company.slice(0, 1).toUpperCase()}
+                                </span>
+                                <div>
+                                  <button
+                                    className="company-link"
+                                    onClick={() => setDialog(item)}
+                                  >
+                                    {item.company}
+                                    <span className="sr-only">
+                                      , {item.role}, view details
+                                    </span>
+                                  </button>
+                                  <span className="role-name">{item.role}</span>
+                                  <small>
+                                    {item.location || 'Location not specified'}{' '}
+                                    · {item.mode}
+                                  </small>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="status" data-stage={item.stage}>
+                                {item.stage}
+                              </span>
+                            </td>
+                            <td className="date-cell">
+                              {formatDate(item.appliedAt)}
+                            </td>
+                            <td>
+                              <span className="next-action">
+                                {item.nextAction || 'No next step yet'}
+                              </span>
+                              {item.actionDate && (
+                                <small className="action-date">
+                                  {formatDate(item.actionDate)}
+                                </small>
+                              )}
+                            </td>
+                            <td>
+                              <button
+                                className="icon-button"
+                                onClick={() => setDialog(item)}
+                                aria-label={`View ${item.company} application`}
+                              >
+                                <ArrowUpRight size={17} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 <p className="results-count" role="status">
                   Showing {filtered.length} of {applications.length}{' '}
                   applications
@@ -310,7 +439,9 @@ export default function App() {
                 <p>
                   {applications.length
                     ? 'Try a different search or clear your filters.'
-                    : 'Add your first application, or explore with sample data.'}
+                    : user
+                      ? 'Add your first application to your private workspace.'
+                      : 'Add your first application, or explore with sample data.'}
                 </p>
                 {applications.length ? (
                   <button
@@ -325,6 +456,7 @@ export default function App() {
                 ) : (
                   <button
                     className="button primary"
+                    disabled={loading || busy}
                     onClick={() => setDialog('new')}
                   >
                     Add your first application
@@ -335,7 +467,11 @@ export default function App() {
           </section>
           <footer className="workspace-footer">
             <p>Your search, at your pace.</p>
-            <p>Demo data is saved in this browser only.</p>
+            <p>
+              {user
+                ? 'Your applications are private to your account.'
+                : 'Demo data is saved in this browser only.'}
+            </p>
           </footer>
           <div className="sr-only" aria-live="polite">
             {announcement}
@@ -346,17 +482,25 @@ export default function App() {
         <ApplicationDialog
           application={dialog === 'new' ? null : dialog}
           onClose={() => setDialog(null)}
-          onSave={(item) => {
-            const saved = persist([item, ...applications]);
-            if (saved) setAnnouncement(`${item.company} application added.`);
-            return saved;
+          onSave={async (item, previous) => {
+            await save(item, previous);
+            setQuery('');
+            setStage('All stages');
+            setAnnouncement(
+              `${item.company} application ${previous ? 'updated' : 'added'}.`,
+            );
+          }}
+          onDelete={async (item) => {
+            await remove(item);
+            setAnnouncement(`${item.company} application deleted.`);
           }}
         />
       )}
+      {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} />}
       {resetting && (
         <ResetDialog
           onCancel={() => setResetting(false)}
-          onConfirm={resetDemo}
+          onConfirm={() => void resetDemo()}
         />
       )}
     </div>
@@ -369,21 +513,8 @@ function ResetDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement;
-    ref.current?.showModal();
-    return () => {
-      if (previous instanceof HTMLElement) previous.focus();
-    };
-  }, []);
   return (
-    <dialog
-      ref={ref}
-      className="reset-dialog"
-      onCancel={onCancel}
-      aria-labelledby="reset-title"
-    >
+    <Modal className="reset-dialog" titleId="reset-title" onClose={onCancel}>
       <h2 id="reset-title">Replace local applications?</h2>
       <p>
         This removes your current local applications and loads eight sample
@@ -397,6 +528,6 @@ function ResetDialog({
           Replace with sample data
         </button>
       </div>
-    </dialog>
+    </Modal>
   );
 }

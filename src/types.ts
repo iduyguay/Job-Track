@@ -20,4 +20,12 @@ export interface Application {
   nextAction: string;
   actionDate: string;
   notes: string;
+  history?: StageEvent[];
+  version?: number;
+}
+export interface StageEvent {
+  id: string;
+  from: Stage | null;
+  to: Stage;
+  at: string;
 }
